@@ -1,6 +1,7 @@
-**__pycache__**
-.vscode/**
-assets/**
-configs/**
-data/**
-logs/**
+__pycache__/
+.vscode/
+assets/
+configs/
+data/
+logs/
+_isaac_sim
