@@ -13,7 +13,7 @@ class LayerNorm(nn.Module):
         self.gamma = nn.Parameter(torch.ones(1, normalized_shape, 1))
         self.beta = nn.Parameter(torch.zeros(1, normalized_shape, 1))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         mean = x.mean(dim=1, keepdim=True)
         var = x.var(dim=1, unbiased=False, keepdim=True)
         x_normalized = (x - mean) / torch.sqrt(var + self.eps)        
@@ -119,7 +119,7 @@ class TransformerStudent(nn.Module):
             encoder_layer=nn.TransformerEncoderLayer(d_model=self.d_model, nhead=8, batch_first=True),
             num_layers=4
         )
-
+        
         self.decoder = nn.TransformerDecoder(
             decoder_layer=nn.TransformerDecoderLayer(d_model=self.d_model, nhead=8, batch_first=True),
             num_layers=4

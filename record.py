@@ -4,13 +4,16 @@
 
 import os
 import argparse
-from omni.isaac.lab.app import AppLauncher
-parser = argparse.ArgumentParser()
-parser.add_argument('--num_envs', type=int, default=1)
+from isaaclab.app import AppLauncher
+
+parser = argparse.ArgumentParser(description="Record IL dataset.")
+parser.add_argument("--task", type=str, default="ForestChaser")
+parser.add_argument("--num_envs", type=int, default=1)
+parser.add_argument("--use_fabric", action="store_true", default=True)
+parser.add_argument("--seed", type=int, default=42)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
-args_cli.enable_cameras = True
-os.environ['ENABLE_CAMERAS'] = '1'
+os.environ['ENABLE_CAMERAS'] = str(int(args_cli.enable_cameras))
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
@@ -18,72 +21,91 @@ simulation_app = app_launcher.app
 #    Anything else    #
 #######################
 
-from omegaconf import OmegaConf
+import h5py
+from tqdm import tqdm
 import torch
-from envs.forest_chaser import ForestChaserCfg, ForestChaser
-from envs.wrappers import FlattenObservation
-from models.student import TransformerStudent
-from my_utils.tensor_queue import TensorQueue
-
-def get_chaser_input(observation):
-    depth = observation['chaser']['depth']
-    depth = depth.clamp_max(5.0) / 5.0
-    rgb = observation['chaser']['rgb']
-    rgb = rgb.permute(0, 3, 1, 2).contiguous()
-    rgb = rgb.float() / 255.0
-    chaser_state = torch.cat([
-        observation['chaser']['lin_vel_b'],
-        observation['chaser']['rotmat'],
-        observation['chaser']['ang_vel_b']
-    ], dim=-1)
-    last_action = observation['chaser']['last_action']
-    return depth, rgb, chaser_state, last_action
+import numpy as np
+from omegaconf import OmegaConf
+import gymnasium as gym
+from tensordict import TensorDict
+from torchrl.data import ReplayBuffer
+from skrl.envs.wrappers.torch import IsaacLabWrapper
+from isaaclab_tasks.utils import parse_env_cfg
+from isaaclab.utils.io import dump_yaml
+from models.teacher import TeacherPolicy
+import skrl.utils
+from skrl.utils.spaces.torch import unflatten_tensorized_space
+from skrl.resources.preprocessors.torch import RunningStandardScaler
+import envs
 
 
-def main():
-    device = args_cli.device
-    num_envs = args_cli.num_envs
 
-    cfg = ForestChaserCfg()
-    cfg.scene.num_envs = num_envs
-    env = ForestChaser(cfg)
 
-    # chaser
-    cfg = OmegaConf.load('logs/policy/student/Transformer_2025-01-13_21-06-52/config.yaml')
-    student_policy = TransformerStudent(
-        cfg.model.n_hist, cfg.model.n_pred,
-        seperate_depth=cfg.model.seperate_depth,
-        learnable_posemb=cfg.model.learnable_posemb,
-        fourier_feature=cfg.model.fourier_feature
-    ).to(device)
-    student_policy.load_state_dict(torch.load("logs/policy/student/Transformer_2025-01-13_21-06-52/best_model.pth", weights_only=True))
-    student_policy.eval()
-    depth_buffer = TensorQueue(device, env.num_envs, cfg.model.n_hist, 224, 224)
-    rgb_buffer = TensorQueue(device, env.num_envs, cfg.model.n_hist, 3, 224, 224)
-    chaser_state_buffer = TensorQueue(device, env.num_envs, cfg.model.n_hist, 15)
-    last_action_buffer = TensorQueue(device, env.num_envs, cfg.model.n_hist, 4)
+def append_dict_to_hdf5(h5_group: h5py.Group, data_dict: dict):
+    for k, v in data_dict.items():
+        if isinstance(v, dict):
+            subgroup = h5_group.require_group(k)  # will create group if not exist
+            append_dict_to_hdf5(subgroup, v)
+        elif isinstance(v, torch.Tensor):
+            if k in h5_group:
+                # append to dataset
+                data = v.cpu().numpy()  # (B, *S)
+                dataset = h5_group[k]
+                assert dataset.shape[1:] == data.shape
+                cur_size = dataset.shape[0]
+                dataset.resize((cur_size+1, *dataset.shape[1:]))  # (T, B, *S)
+                dataset[-1] = data
+            else:
+                # create if dataset not exist
+                data = v.unsqueeze(0).cpu().numpy()  # (1, B, *S)
+                dataset = h5_group.create_dataset(
+                    name=k,
+                    data=data,
+                    shape=data.shape,
+                    maxshape=(None, *data.shape[1:])
+                )
+        else:
+            raise TypeError(f"Unsupported data type for key '{k}': {type(v)}")
 
-    observation, info = env.reset()
-    depth, rgb, chaser_state, last_action = get_chaser_input(observation)
-    depth_buffer.init(depth)
-    rgb_buffer.init(rgb)
-    chaser_state_buffer.init(chaser_state)
-    last_action_buffer.init(last_action)
 
-    while simulation_app.is_running():
-        
-        depth, rgb, chaser_state, last_action = get_chaser_input(observation)
-        depth_buffer.append(depth)
-        rgb_buffer.append(rgb)
-        chaser_state_buffer.append(chaser_state)
-        last_action_buffer.append(last_action)
-        
-        with torch.inference_mode():
-            chaser_action = student_policy(depth_buffer.buffer, rgb_buffer.buffer, chaser_state_buffer.buffer, last_action_buffer.buffer)
+log_dir = "data/dagger"
+device = args_cli.device
+num_envs = args_cli.num_envs
+env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=args_cli.use_fabric)
+env_cfg.seed = args_cli.seed
+skrl.utils.set_seed(args_cli.seed)
+dump_yaml(os.path.join(log_dir, "env.yaml"), env_cfg)
 
-        obs, rew, terminated, truncated, info = env.step(chaser_action[:, 0])
-    
-    env.close()
+env = gym.make(args_cli.task, cfg=env_cfg)
+env = IsaacLabWrapper(env)
 
-if __name__ == '__main__':
-    main()
+weights = torch.load('logs/policy/teacher/PPO_2025-02-14_00-18-22/checkpoints/best_agent.pt', weights_only=True)
+teacher_state_preprocessor = RunningStandardScaler(size=env.observation_space, device=device).to(device)
+teacher_state_preprocessor.load_state_dict(weights['state_preprocessor'])
+teacher_state_preprocessor.eval()
+teacher_policy = TeacherPolicy(observation_space=env.observation_space, action_space=env.action_space, device=device).to(device)
+teacher_policy.load_state_dict(weights['policy'])
+teacher_policy.eval()
+
+with torch.inference_mode():
+    with h5py.File(f"{log_dir}/data.h5df", 'a') as h5_file:
+        obs, info = env.reset()
+        while simulation_app.is_running():
+            for _ in tqdm(range(100)):
+                act, _, _ = teacher_policy.compute({'states': teacher_state_preprocessor(obs)})
+                next_obs, rew, terminated, truncated, info = env.step(act)
+                done = terminated | truncated
+                obs_dict = unflatten_tensorized_space(env.observation_space, obs)
+                transition = {
+                    'obs': {
+                        'evader': obs_dict['evader'],
+                        'chaser': obs_dict['chaser'] | info
+                    },
+                    'act': act,
+                    'rew': rew,
+                    'done': done
+                }
+                append_dict_to_hdf5(h5_file, transition)
+                obs = next_obs
+            break
+env.close()

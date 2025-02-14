@@ -2,11 +2,10 @@ import torch
 
 @torch.jit.script
 def normalize(x: torch.Tensor, eps: float = 1e-9) -> torch.Tensor:
-    return x / x.norm(p=2, dim=-1, keepdim=True).clamp(min=eps, max=None)
+    return x / x.norm(p=2, dim=-1, keepdim=True).clamp_min(eps)
 
 @torch.jit.script
-def quat_to_rotation_matrix(q):
-    # type: (torch.Tensor) -> torch.Tensor
+def quat_to_rotation_matrix(q: torch.Tensor) -> torch.Tensor:
     # (N, 4) -> (N, 3, 3)
     w, x, y, z = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
     xx, xy, xz, xw = x * x, x * y, x * z, x * w
@@ -23,36 +22,32 @@ def quat_to_rotation_matrix(q):
     return m
 
 @torch.jit.script
-def quat_to_z_axis(q):
-    # type: (torch.Tensor) -> torch.Tensor
+def quat_to_z_axis(q: torch.Tensor) -> torch.Tensor:
     # (N, 4) -> (N, 3)
     w, x, y, z = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
     xx, xz, xw = x * x, x * z, x * w
     yy, yz, yw = y * y, y * z, y * w
-    m = torch.stack([
+    m3 = torch.stack([
         2.0 * (xz + yw),
         2.0 * (yz - xw),
         1.0 - 2.0 * (xx + yy)
     ],dim=-1)
-    return m
+    return m3
 
 @torch.jit.script
-def quat_to_yaw(q):
-    # type: (torch.Tensor) -> torch.Tensor
+def quat_to_yaw(q: torch.Tensor) -> torch.Tensor:
     # (N, 4) -> (N)
     w, x, y, z = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
     yaw = torch.atan2(2.0 * (w * z - x * y), 1.0 - 2.0 * (y * y + z * z))
     return yaw
 
 @torch.jit.script
-def inner_product(v1, v2):
-    # type: (torch.Tensor, torch.Tensor) -> torch.Tensor
+def inner_product(v1: torch.Tensor, v2: torch.Tensor) -> torch.Tensor:
     # (*N, D), (*N, D) -> (*N, 1)
     return torch.sum(v1 * v2, dim=-1, keepdim=True)
 
 @torch.jit.script
-def quat_rotate(q, v):
-    # type: (torch.Tensor, torch.Tensor) -> torch.Tensor
+def quat_rotate(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     # rotate vectors by quaternions (w, x, y, z)
     # (*N, 4), (*N, 3) -> (*N, 3)
     q_w = q[..., 0:1]  # (*N, 1)
@@ -63,8 +58,7 @@ def quat_rotate(q, v):
     return a + b + c
 
 @torch.jit.script
-def quat_rotate_inv(q, v):
-    # type: (torch.Tensor, torch.Tensor) -> torch.Tensor
+def quat_rotate_inv(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     # rotate vectors by quaternions (w, -x, -y, -z)
     # (*N, 4), (*N, 3) -> (*N, 3)
     q_w = q[..., 0:1]
@@ -75,8 +69,7 @@ def quat_rotate_inv(q, v):
     return a + b + c
 
 @torch.jit.script
-def vee_map(skew_matrix):
-    # type: (torch.Tensor) -> torch.Tensor
+def vee_map(skew_matrix: torch.Tensor) -> torch.Tensor:
     # return vee map vectors of skew matrixs
     # (*N, 3, 3) -> (*N, 3)
     v = torch.stack(
@@ -90,6 +83,5 @@ def vee_map(skew_matrix):
     return v / 2.0
 
 @torch.jit.script
-def quat_inv(q):
-    # type: (torch.Tensor) -> torch.Tensor
-    return torch.cat((q[:, 0:1], -q[:, 1:4]), dim=-1)
+def quat_inv(q: torch.Tensor):
+    return torch.cat((q[..., 0:1], -q[..., 1:4]), dim=-1)

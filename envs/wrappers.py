@@ -5,6 +5,7 @@ from gymnasium import Wrapper
 import torch
 
 import skrl.envs.wrappers.torch.base
+from skrl.envs.wrappers.torch import IsaacLabWrapper
 
 
 class IsaacLabWrapper(skrl.envs.wrappers.torch.base.Wrapper):
@@ -90,7 +91,7 @@ def unflatten_observation(flat_obs: torch.Tensor, space: gym.spaces.Space):
 # def unflatten(obs, space):
 #     '''
 #     obs: (num_envs, *shape)
-#     space: unbatched observation space
+#     space: single observation space
 #     '''
 #     if isinstance(space, gym.spaces.Dict):
 #         unflattened = {}

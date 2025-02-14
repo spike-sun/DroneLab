@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
-from my_utils.dataset import ILDataset
+from _utils.dataset import ILDataset
 from models.vae import loss_function, VAE
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg

@@ -16,91 +16,9 @@
 
 2024-10-25_17-14-01 将replay buffer大小从100K增加到1M，由于显存限制，环境数从512减少到64。
 
-为什么replay buffer会占这么多显存？？？
+2024-10-26_21-17-54 开启skrl自带的状态、值函数目标归一化，从源码看只应用了state_preprocessor，没有用上value_preprocessor
 
-为什么PPO会突然崩溃？？？
-
-到底怎么设置终止条件？？？
-
-最后Q值很大，网络能输出这么大的值吗？？？怎么归一化target value？？？
-
-每次重置之后episode length就剧烈下跌，重置部分是不是有问题？？？
-
-TODO 为防遮挡任务设计引导奖励
-
-TODO 状态、值函数目标归一化
-
-2024-10-26_21-17-54 开启SKRL自带的状态、值函数目标归一化，从源码看只应用了state_preprocessor，没有用上value_preprocessor
-
-python sac.py --play --task Tracking-Direct-v0 --num_envs 1 --checkpoint logs/skrl/tracking_direct/SAC_2024-10-26_21-17-54/checkpoints/best_agent.pt
-
-观测空间：目标相对位置、目标相对速度、目标旋转矩阵、自身速度、自身旋转矩阵、自身角速度、深度图、雷达
-
-已知目标相对位置，可以求出目标在深度图中的u-v坐标、目标的深度
-
-深度图的输入方式：（1）原图（2）减去目标的深度（3）只取目标周围的一块因为深度图只用来防遮挡（超出边界的部分用什么补全？）
-
-奖励设计：
-
-（1）跟踪奖励，和之前可以一样
-
-（2）防遮挡奖励，用目标周围一块的深度图减去目标的深度，大于0的部分不可能遮挡，小于0的部分可能遮挡，计算非目标区域（目标区域可以用分割掩膜来得到）的深度平均值，平均值越大奖励越大
-
-$$
-\bar{d} = \frac{I_{depth} * mask}{sum(mask)}
-$$
-
-其中mask是目标为0其他为1的掩膜，这样做是为了去除目标区域大小对该项产生的影响。
-
-（3）避障惩罚，和之前可以一样
-
-（4）遮挡惩罚，和之前可以一样，遮挡的判断用深度图中目标位置上的深度和目标实际深度比较（可以差出一个臂长的距离）
-
-（5）动作惩罚，和之前可以一样
-
-动作空间：角速度和推力
-
-# env_origin是怎么来的？
-
-首先，当配置了terrian时，self.env_origin实际返回self._terrain.env_origins
-
-1. TerrainImporter如何配置terrain_origins和env_origins？
-
-self.configure_env_origins(terrain_generator.terrain_origins)
-
-self.terrain_origins等于terrain_generator.terrain_origins
-
-self.env_origins = self._compute_env_origins_curriculum(self.cfg.num_envs, self.terrain_origins)
-
-2. TerrainGenerator如何配置terrain_origins？
-
-mesh, origin = self._get_terrain_mesh(difficulty, sub_terrains_cfgs[sub_index]) 生成了一个origin
-
-self._add_sub_terrain(mesh, origin, sub_row, sub_col, sub_terrains_cfgs[sub_indices[sub_col]]) 中把origin加上不同sub_terrian的位移，得到terrain_origins
-
-horizontal_scale和vertical_scale控制长度（m）和高度场中像素个数的换算比例，数值越小，障碍物越精细
-
-3. discrete_obstacles_terrain(difficulty, cfg)如何生成随机障碍物？
-
-difficulty用来确定障碍物的高度，difficulty越大，障碍物越高（线性插值）
-
-obstacle_height_mode为fixed则一个sub_terrian中高度都相同，由difficulty决定，为choice则随机在h,h/2,-h/2,-h中选择
-
-随机位置和尺寸生成高度场，然后裁剪中间platform_width区域，然后在包装器@height_field_to_mesh中用trimesh库生成mesh
-
-origin_z是本sub_terrian中最高的障碍物的高度
-
-3. _compute_env_origins_curriculum(self.cfg.num_envs, self.terrain_origins)如何配置env_origins？
-
-不同的行代表不同的难度（如果开启了cirrculum，否则每个terrain只是随机采样difficulty），不同的列代表不同的随机地形
-
-把env放置到terrian中去，首先把env平均分配到所有的列，如果num_envs=16，terrian列数为4，则每个列上有4个环境，然后在[0, max_init_terrain_level]中选择行号
-
-因此，env_origins是从terrian_origins中选取的，不一定所有terrian上都放置了env
-
-------------------------------------------------------------------------------------------------------------------------
-
-碰撞检测逻辑应为：过去decimation个substep中如果发生**过**碰撞则重置，记得重置碰撞标记
+碰撞检测逻辑应为：过去decimation个substep中如果发生过碰撞则重置，记得重置碰撞标记
 
 /home/sbw/IsaacLab/source/extensions/omni.isaac.lab/omni/isaac/lab/sensors/ray_caster/patterns/patterns.py: 156写错了，应该加1
 
@@ -115,8 +33,6 @@ origin_z是本sub_terrian中最高的障碍物的高度
 网络[256, 256] -> [400, 300]初始化换成kaiming_uniform
 
 初始化kaiming_normal
-
-两个地方求雷达距离的clip最大值不一样
 
 SAC_2024-11-22_15-49-50 训练evader，无障碍物
 
@@ -152,8 +68,6 @@ PPO_2024-12-11_19-21-20 用新的evader训练chaser，修改了地图大小但�
 
 PPO_2024-12-12_11-08-34 修正障碍物密度，重新训练chaser
 
-TODO 奖励uprightness
-
 TransformerStudent_2024-12-18_15-11-15 修正了之前RGB没有归一化的错误，用两个ResNet18分别提取rgb和depth，这个用的数据集中depth截断到10.0
 
 VAE_2024-12-19_09-32-20 训练了VAE，将(4, 224, 224)的RGBD编码成(256, 14, 14)，注意用的数据集中depth进行了 1 / (1 + x) 变换, 数据集中segmentation图像边缘可能出现chaser的螺旋桨
@@ -163,8 +77,6 @@ VAE_2024-12-19_09-32-20 训练了VAE，将(4, 224, 224)的RGBD编码成(256, 14,
 TransformerVAEStudent_2024-12-19_21-07-51 冻结VAE训练Transformer, 一张图片196个token, 序列长度达到了1970, d_model减到256, 用的L1 Loss, 位置和时间编码用方案一
 
 TransformerVAEStudent_2024-12-19_21-38-24 实际上训练的是TransformerStudentSmall, 用EfficientNet-b0处理RGBD, 一张图片一个token, 位置编码改成rgbd和state接续而非一样
-
-用VAE+Transformer时图像位置和时间怎么设计位置编码？
 
 TransformerStudent_2024-12-20_21-44-50 ResNet18从头训练, RGBD和在一起, 用MSE loss
 
@@ -195,3 +107,4 @@ PPO_2025-01-16_11-37-42 动作周期0.05s
 加入chaser初始随机姿态和距离, 初始时向前0.5m/s速度
 
 PPO_2025-01-16_21-45-27 动作周期0.1s, 从PPO_2025-01-15_22-54-14继续
+

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from skrl.models.torch import Model, GaussianMixin, DeterministicMixin
-from envs.wrappers import unflatten_observation
+from skrl.utils.spaces.torch import unflatten_tensorized_space
 
 
 class EvaderPolicy(GaussianMixin, Model):
@@ -20,34 +20,25 @@ class EvaderPolicy(GaussianMixin, Model):
             nn.Linear(300, self.num_actions),
             nn.Tanh()
         )
-
+        
         self.policy_logstd = nn.Parameter(torch.ones(self.num_actions) * 0.5)
 
-        self.initialize_weights()
+        orthogonal_initialize(self)
     
     def act(self, inputs, role):
         return GaussianMixin.act(self, inputs, role)
     
-    def compute(self, inputs, role=''):
-        obs = inputs['states']
-        if isinstance(obs, torch.Tensor):
-            obs = unflatten_observation(obs, self.observation_space)
+    def compute(self, inputs, role=None):
+        obs = unflatten_tensorized_space(self.observation_space, inputs['states'])
         obs = torch.cat([
-            obs['history_lidar'].flatten(1,2),
-            obs['height_error'],
-            obs['lin_vel_w_error'],
-            obs['z_axis'],
-            obs['last_action']
+            obs['evader']['lidar'].flatten(1,2),
+            obs['evader']['height_error'],
+            obs['evader']['lin_vel_w_error'],
+            obs['evader']['z_axis'],
+            obs['evader']['last_action']
         ], dim=-1)
         h = self.net(obs)
         return self.policy_mean(h), self.policy_logstd, {}
-
-    def initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
 
 
 class EvaderValue(DeterministicMixin, Model):
@@ -63,25 +54,26 @@ class EvaderValue(DeterministicMixin, Model):
             nn.Linear(300, 1)
         )
 
-        self.initialize_weights()
+        orthogonal_initialize(self)
     
     def act(self, inputs, role):
         return DeterministicMixin.act(self, inputs, role)
     
-    def compute(self, inputs: dict, role):
-        obs = unflatten_observation(inputs["states"], self.observation_space)
+    def compute(self, inputs: dict, role=None):
+        obs = unflatten_tensorized_space(self.observation_space, inputs["states"])
         obs = torch.cat([
-            obs['history_lidar'].flatten(1,2),
-            obs['height_error'],
-            obs['lin_vel_w_error'],
-            obs['z_axis'],
-            obs['last_action']
+            obs['evader']['lidar'].flatten(-2,-1),
+            obs['evader']['height_error'],
+            obs['evader']['lin_vel_w_error'],
+            obs['evader']['z_axis'],
+            obs['evader']['last_action']
         ], dim=-1)
         return self.net(obs), {}
 
-    def initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+
+def orthogonal_initialize(net: nn.Module):
+    for m in net.modules():
+        if isinstance(m, nn.Linear):
+            nn.init.orthogonal_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)

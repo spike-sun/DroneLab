@@ -4,9 +4,12 @@
 
 import os
 import argparse
-from omni.isaac.lab.app import AppLauncher
+from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser()
-parser.add_argument("--num_envs", type=int, required=True, help="Number of environments to simulate.")
+parser.add_argument("--task", type=str, required=True)
+parser.add_argument("--num_envs", type=int, required=True)
+parser.add_argument("--use_fabric", action="store_true", default=True)
+parser.add_argument("--seed", type=int, default=None)
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 os.environ['ENABLE_CAMERAS'] = str(int(args_cli.enable_cameras))
@@ -18,22 +21,20 @@ simulation_app = app_launcher.app
 #    Anything else    #
 #######################
 
-import traceback
+import gymnasium as gym
 import torch
+from isaaclab_tasks.utils import parse_env_cfg
 import envs
-from envs.forest_chaser import ForestChaserCfg, ForestChaser
-from skrl.envs.wrappers.torch import IsaacLabWrapper
 
 
 def main():
-    device = 'cuda:1'
+    device = args_cli.device
     num_envs = args_cli.num_envs
-    cfg = ForestChaserCfg()
-    cfg.scene.num_envs = num_envs
-    env = ForestChaser(cfg)
+    env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=args_cli.use_fabric)
+    env = gym.make(args_cli.task, cfg=env_cfg)
     observation, info = env.reset()
     while simulation_app.is_running():
-        action = torch.zeros((num_envs, 4))
+        action = torch.zeros((num_envs, gym.spaces.flatdim(env.action_space)), device=device)
         observation, reward, terminated, truncated, info = env.step(action)
     env.close()
 

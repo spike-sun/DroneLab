@@ -4,15 +4,7 @@ import torch.nn as nn
 import gymnasium as gym
 from skrl.models.torch import Model, GaussianMixin, DeterministicMixin
 from skrl.resources.preprocessors.torch import RunningStandardScaler
-from envs.wrappers import unflatten_observation
-
-
-def orthogonal_initialize(model: nn.Module):
-    for m in model.modules():
-        if isinstance(m, nn.Linear):
-            nn.init.orthogonal_(m.weight)
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
+from skrl.utils.spaces.torch import unflatten_tensorized_space, flatten_tensorized_space
 
 
 class TeacherPolicy(GaussianMixin, Model):
@@ -22,25 +14,23 @@ class TeacherPolicy(GaussianMixin, Model):
         self.backbone = nn.Sequential(
             nn.Linear(79, 400),
             nn.ReLU(),
-            nn.Linear(400, 400),
+            nn.Linear(400, 300),
             nn.ReLU()
         )
         self.policy_mean = nn.Sequential(
-            nn.Linear(400, 4),
+            nn.Linear(300, self.num_actions),
             nn.Tanh()
         )
         self.policy_logstd = nn.Parameter(torch.ones(4) * 0.5)
         orthogonal_initialize(self)
-
+    
     def act(self, inputs, role):
         return GaussianMixin.act(self, inputs, role)
     
-    def compute(self, inputs: dict, role):
-        obs = inputs['states']
-        if isinstance(obs, torch.Tensor):
-            obs = unflatten_observation(obs, self.observation_space)
+    def compute(self, inputs: dict, role=None):
+        obs = unflatten_tensorized_space(self.observation_space, inputs['states'])
         obs = torch.concat([
-            obs['chaser']["history_lidar"].flatten(1,2),
+            obs['chaser']["lidar"].flatten(-2,-1),
             obs['chaser']['relative_pos'],
             obs['chaser']['relative_vel'],
             obs['chaser']['lin_vel_b'],
@@ -53,13 +43,6 @@ class TeacherPolicy(GaussianMixin, Model):
         h = self.backbone(obs)
         return self.policy_mean(h), self.policy_logstd, {}
 
-    def initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-
 
 class TeacherValue(DeterministicMixin, Model):
     def __init__(self, observation_space, action_space, device, clip_actions=False):
@@ -68,21 +51,19 @@ class TeacherValue(DeterministicMixin, Model):
         self.value = nn.Sequential(
             nn.Linear(79, 400),
             nn.ReLU(),
-            nn.Linear(400, 400),
+            nn.Linear(400, 300),
             nn.ReLU(),
-            nn.Linear(400, 1)
+            nn.Linear(300, 1)
         )
         orthogonal_initialize(self)
     
     def act(self, inputs, role):
         return DeterministicMixin.act(self, inputs, role)
     
-    def compute(self, inputs: dict, role):
-        obs = inputs['states']
-        if isinstance(obs, torch.Tensor):
-            obs = unflatten_observation(obs, self.observation_space)
+    def compute(self, inputs: dict, role=None):
+        obs = unflatten_tensorized_space(self.observation_space, inputs['states'])
         obs = torch.concat([
-            obs['chaser']["history_lidar"].flatten(1,2),
+            obs['chaser']["lidar"].flatten(-2,-1),
             obs['chaser']['relative_pos'],
             obs['chaser']['relative_vel'],
             obs['chaser']['lin_vel_b'],
@@ -137,3 +118,10 @@ class TeacherShared(GaussianMixin, DeterministicMixin, Model):
             else:
                 h = self.backbone(inputs["states"])
             return self.value(h), {}
+
+def orthogonal_initialize(model: nn.Module):
+    for m in model.modules():
+        if isinstance(m, nn.Linear):
+            nn.init.orthogonal_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)

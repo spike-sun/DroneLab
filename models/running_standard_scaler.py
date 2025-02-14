@@ -5,6 +5,9 @@ import gymnasium as gym
 
 
 class RunningStandardScaler(nn.Module):
+    running_mean: torch.Tensor
+    running_var: torch.Tensor
+    current_size: torch.Tensor
     def __init__(self, size: Union[int, gym.Space], epsilon: float = 1e-8, clip_threshold: float = 10.0) -> None:
         '''Standardize the input data by removing the mean and scaling by the standard deviation'''
         super().__init__()

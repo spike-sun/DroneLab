@@ -2,7 +2,7 @@ import torch
 from .math import normalize, quat_to_rotation_matrix, inner_product, quat_rotate, quat_rotate_inv, vee_map
 
 class PositionController:
-    def __init__(self, num_envs, device, scale):
+    def __init__(self, num_envs, device, scale: float=1.0):
         # 多个无人机共用一个实例，不要在内部保存状态
         self.num_envs = num_envs
         self.device = device
@@ -28,13 +28,16 @@ class PositionController:
         self.torque_min = -0.04 * scale * scale
         self.torque_max = 0.04 * scale * scale
     
-    def pos_cmd(self, pos, quat, vel_w, angvel_b, pos_des, pos_des_dot, pos_des_ddot):
+    def pos(self, pos, quat, vel_w, angvel_b, pos_des, pos_des_dot, pos_des_ddot):
         pos_error = pos - pos_des
         vel_w_error = vel_w - pos_des_dot
         acc_w_des = - self.kp * pos_error - self.kv * vel_w_error + pos_des_ddot
-        return self.acc_yawrate_cmd(quat, angvel_b, acc_w_des, self.zeros)
+        return self.acc_yawrate(quat, angvel_b, acc_w_des, self.zeros)
     
-    def acc_yaw_cmd(self, quat, angvel_b, acc_w_des, yaw_des):
+    def vel(self):
+        pass
+    
+    def acc_yaw(self, quat, angvel_b, acc_w_des, yaw_des):
         x_c_des = torch.stack([
             torch.cos(yaw_des),
             torch.sin(yaw_des),
@@ -43,17 +46,18 @@ class PositionController:
         z_b = quat_rotate(quat, self.z_w)
         f_w_des = self.m * (acc_w_des + self.g * self.z_w)
         thrust = inner_product(f_w_des, z_b)
+        thrust = thrust.squeeze(-1).clamp_max(self.thrust_max)
         z_b_des = normalize(f_w_des)
         y_b_des = normalize(torch.cross(z_b_des, x_c_des, dim=-1))
         x_b_des = torch.cross(y_b_des, z_b_des, dim=-1)
         rotmat_des = torch.stack([x_b_des, y_b_des, z_b_des], dim=-1)
-        return thrust.squeeze(-1).clamp(0.0, self.thrust_max), self.rotmat_cmd(quat, angvel_b, rotmat_des)
+        return thrust, self.rotmat(quat, angvel_b, rotmat_des)
 
-    def acc_yawrate_cmd(self, quat, angvel_b, acc_w_des, yawrate_des):
+    def acc_yawrate(self, quat: torch.Tensor, angvel_b: torch.Tensor, acc_w_des: torch.Tensor, yawrate_des: torch.Tensor):
         z_b = quat_rotate(quat, self.z_w)
         f_w_des = self.m * (acc_w_des + self.g * self.z_w)
         thrust = inner_product(f_w_des, z_b)
-        thrust = thrust.squeeze(-1).clamp(0.0, self.thrust_max)  # 正数，z轴正方向上的推力大小
+        thrust = thrust.squeeze(-1).clamp(0.0, self.thrust_max)
 
         z_b_des = normalize(f_w_des)
         cp = torch.cross(z_b, z_b_des, dim=-1)
@@ -67,11 +71,11 @@ class PositionController:
             yawrate_des.unsqueeze(-1)
         ], dim=-1)
         
-        return thrust, self.angvel_cmd(angvel_b, angvel_b_des)
+        return thrust, self.angvel(angvel_b, angvel_b_des)
 
-    def acc_yawrate_cmd_hack(self, quat, angvel_b, acc_b_des, yawrate_des):
-        # 控制线加速度和偏航角速度，但保持z轴竖直
-        force = self.m * (acc_b_des - quat_rotate_inv(quat, self.gravity_vector))  # 体坐标系下的力矢量
+    def acc_yawrate_hack(self, quat, angvel_b, acc_b_des, yawrate_des):
+        # 控制线加速度和偏航角速度，保持俯仰角和滚转角为零
+        force = self.m * (acc_b_des - quat_rotate_inv(quat, self.gravity_vector))  # 体坐标系下的力
 
         z_b = quat_rotate(quat, self.z_w)
         cp = torch.cross(z_b, self.z_w, dim=-1)
@@ -85,15 +89,15 @@ class PositionController:
             yawrate_des.unsqueeze(-1)
         ], dim=-1)
 
-        return force, self.angvel_cmd(angvel_b, angvel_b_des)
+        return force, self.angvel(angvel_b, angvel_b_des)
     
-    def rotmat_cmd(self, quat: torch.Tensor, angvel_b: torch.Tensor, rotmat_des: torch.Tensor) -> torch.Tensor:
+    def rotmat(self, quat: torch.Tensor, angvel_b: torch.Tensor, rotmat_des: torch.Tensor) -> torch.Tensor:
         rotmat = quat_to_rotation_matrix(quat)
         rotmat_error = 0.5 * vee_map(rotmat_des.transpose(1,2) @ rotmat - rotmat.transpose(1,2) @ rotmat_des)
         torque = self.J * (- self.kr * rotmat_error - self.kw * angvel_b + torch.cross(angvel_b, angvel_b, dim=-1))
         return torque.clamp(self.torque_min, self.torque_max)
     
-    def angvel_cmd(self, angvel_b: torch.Tensor, angvel_b_des: torch.Tensor) -> torch.Tensor:
+    def angvel(self, angvel_b: torch.Tensor, angvel_b_des: torch.Tensor) -> torch.Tensor:
         angvel_error = angvel_b - angvel_b_des
         torque = self.J * (- self.kw * angvel_error + torch.cross(angvel_b, angvel_b, dim=-1))
         return torque.clamp(self.torque_min, self.torque_max)
