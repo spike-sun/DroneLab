@@ -5,64 +5,56 @@ import h5py
 from torch.utils.data import Dataset, DataLoader
 
 class ILDataset(Dataset):
-    def __init__(self, path, n_hist, n_pred, inverse_depth: bool):
-        self.path = path
+    def __init__(self, data_dir, n_hist, n_pred=1):
         self.n_hist = n_hist
         self.n_pred = n_pred
-        self.inverse_depth = inverse_depth
-        self.chaser_state_amp = torch.tensor(
-            [
-                0.6350, 0.4774, 0.4190,
-                1.0000, 1.0000, 1.0000, 1.0000, 1.0000, 1.0000, 1.0000, 1.0000, 1.0000,
-                0.8979, 0.6848, 0.5907
-            ],
-            requires_grad=False
-        )
-        
         self.metadata = []
-        for filename in os.listdir(self.path):
-            if filename.endswith(".hdf5"):
-                filepath = os.path.join(self.path, filename)
-                with h5py.File(filepath, "r") as f:
-                    length = f["action"].shape[0]
-                    assert length == f["chaser_state"].shape[0] and length == f["depth"].shape[0], "observations and actions are not aligned"
-                    for t in range(self.n_hist - 1, length - self.n_pred + 1):
-                        self.metadata.append((filepath, t))
+        for filename in os.listdir(data_dir):
+            if filename.endswith('.hdf5'):
+                filepath = os.path.join(data_dir, filename)
+                with h5py.File(filepath, 'r') as f:
+                    len = f['episode_length'].shape[0]
+                    num_envs = f['episode_length'].shape[1]
+                    for t in range(len - self.n_pred + 1):
+                        for env_idx in range(num_envs):
+                            if f['done'][t:t+n_pred-1, env_idx, 0].all():
+                                self.metadata.append((filepath, t, env_idx))
 
     def __len__(self):
         return len(self.metadata)
 
     def __getitem__(self, idx):
-        filepath, t = self.metadata[idx]
-        with h5py.File(filepath, "r") as f:
+        filepath, t, env_idx = self.metadata[idx]
+        with h5py.File(filepath, 'r') as f:
+
+            # TODO
+            # 
             
             # observation
-            depth = torch.tensor(f["depth"][t-self.n_hist+1:t+1], dtype=torch.float32)  # (H, 224, 224)
-            if self.inverse_depth:
-                depth = 1.0 / (1.0 + depth)
-            else:
-                depth = depth.clamp_max(5.0) / 5.0
-            rgb = torch.tensor(f["rgb"][t-self.n_hist+1:t+1])  # (H, 224, 224, 3)
+            depth = torch.tensor(f['depth'][t-self.n_hist+1:t+1], dtype=torch.float32)  # (H, 224, 224)
+            depth.clamp_max_(10.0)
+            depth.div_(10.0)
+            rgb = torch.tensor(f['rgb'][t-self.n_hist+1:t+1])  # (H, 224, 224, 3)
             rgb = rgb.permute(0, 3, 1, 2).contiguous()  # (H, 3, 224, 224)
             rgb = rgb.float() / 255.0
-            evader_state = torch.tensor(f["evader_state"][t-self.n_hist+1:t+1], dtype=torch.float32)  # (H, 6)
-            chaser_state = torch.tensor(f["chaser_state"][t-self.n_hist+1:t+1], dtype=torch.float32)  # (H, 15)
-            last_action = torch.tensor(f["last_action"][t-self.n_hist+1:t+1], dtype=torch.float32)  # (H, 4)
+            evader_state = torch.tensor(f['evader_state'][t-self.n_hist+1:t+1], dtype=torch.float32)  # (H, 6)
+            chaser_state = torch.tensor(f['chaser_state'][t-self.n_hist+1:t+1], dtype=torch.float32)  # (H, 15)
+            last_action = torch.tensor(f['last_action'][t-self.n_hist+1:t+1], dtype=torch.float32)  # (H, 4)
             
             # action
-            action = torch.tensor(f["action"][t:t+self.n_pred], dtype=torch.float32)
+            action = torch.tensor(f['action'][t:t+self.n_pred], dtype=torch.float32)  # (P, 4)
 
         return (depth, rgb, evader_state, chaser_state, last_action), action
 
 
-if __name__ == "__main__":
-    dataset = ILDataset("data/train", 10, 5, inverse_depth=False)
+if __name__ == '__main__':
+    dataset = ILDataset('data/train', 10, 5, inverse_depth=False)
     dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=8)
     for batch in dataloader:
         x, y = batch
         depth, rgb, evader_state, chaser_state, last_action = x
-        print("x:")
+        print('x:')
         for tensor in x:
             print(tensor.shape)
-        print("y:\n", y.shape)
+        print('y:\n', y.shape)
         break

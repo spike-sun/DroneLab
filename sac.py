@@ -3,7 +3,7 @@
 ##########################
 
 import argparse
-from omni.isaac.lab.app import AppLauncher
+from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="Train/Play an RL agent with skrl.")
 mode_group = parser.add_mutually_exclusive_group(required=True)
@@ -41,8 +41,8 @@ from skrl.resources.preprocessors.torch import RunningStandardScaler
 from skrl.trainers.torch import SequentialTrainer
 from skrl.envs.wrappers.torch import IsaacLabWrapper
 from skrl.utils import set_seed
-from omni.isaac.lab.utils.io import dump_pickle, dump_yaml
-from omni.isaac.lab_tasks.utils import parse_env_cfg
+from isaaclab.utils.io import dump_pickle, dump_yaml
+from isaaclab_tasks.utils import parse_env_cfg
 from models import MLPCritic, MLPActor
 from configs.skrl_sac_cfg import SAC_CONFIG
 import envs

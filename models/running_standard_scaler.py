@@ -17,20 +17,20 @@ class RunningStandardScaler(nn.Module):
             size = gym.spaces.flatdim(size)
         self.register_buffer("running_mean", torch.zeros(size, dtype=torch.float, requires_grad=False))
         self.register_buffer("running_var", torch.ones(size, dtype=torch.float, requires_grad=False))
-        self.register_buffer("current_size", torch.ones(1, dtype=torch.float, requires_grad=False))
+        self.register_buffer("current_size", torch.ones((), dtype=torch.float, requires_grad=False))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         with torch.inference_mode():
             if self.training:
                 # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+                batch_size = float(x.shape[0])
                 batch_mean = torch.mean(x, dim=0)
                 batch_var = torch.var(x, dim=0)
-                batch_size = float(x.shape[0])
                 delta = batch_mean - self.running_mean
                 total_size = self.current_size + batch_size
                 moment = self.running_var * self.current_size + batch_var * batch_size + self.current_size * batch_size / total_size * delta ** 2
                 self.running_mean = self.running_mean + batch_size / total_size * delta
-                self.running_var = moment / total_size
+                self.running_var = moment / (total_size - 1.0)
                 self.current_size = total_size
             x_normalized = (x - self.running_mean) / (torch.sqrt(self.running_var) + self.epsilon)
             return x_normalized.clamp(-self.clip_threshold, self.clip_threshold)

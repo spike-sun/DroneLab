@@ -4,7 +4,7 @@ from datetime import datetime
 from tqdm import tqdm
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
-from my_utils.dataset import ILDataset
+from _utils.dataset import ILDataset
 from models.student import TransformerStudent, TCNStudent
 from torch.utils.tensorboard.writer import SummaryWriter
 import torch.nn.functional as F

@@ -53,7 +53,7 @@ class ForestEvaderSceneCfg(InteractiveSceneCfg):
     evader = ArticulationCfg(
         prim_path = '{ENV_REGEX_NS}/evader',
         spawn = sim_utils.UsdFileCfg(
-            usd_path = '/home/sbw/MyUAV/assets/cf2x/cf2x_blue.usd',
+            usd_path = '/home/sbw/DroneLab/assets/cf2x/cf2x_blue.usd',
             activate_contact_sensors = True,
             rigid_props = sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity = False,
@@ -112,7 +112,7 @@ class ForestChaserAssetCfg:
     chaser = ArticulationCfg(
         prim_path = '{ENV_REGEX_NS}/chaser',
         spawn = sim_utils.UsdFileCfg(
-            usd_path = f'/home/sbw/MyUAV/assets/cf2x/cf2x_red.usd',
+            usd_path = f'/home/sbw/DroneLab/assets/cf2x/cf2x_red.usd',
             activate_contact_sensors = True,
             rigid_props = sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity = False,

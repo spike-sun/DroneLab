@@ -91,6 +91,8 @@ class ForestChaser(DirectRLEnv):
         self.actions_e = torch.zeros((self.num_envs, 3), device=self.device, requires_grad=False)
         self.force_e = torch.zeros((self.num_envs, 1, 3), device=self.device, requires_grad=False)
         self.torque_e = torch.zeros((self.num_envs, 1, 3), device=self.device, requires_grad=False)
+
+        # evader policy
         evader_action_space = Box(low=-1.0, high=1.0, shape=[3])
         evader_observation_space = Dict(evader=self.single_observation_space['policy']['evader'])
         self.evader_observation = torch.zeros((self.num_envs, gym.spaces.flatdim(evader_observation_space)), device=self.device)
@@ -269,7 +271,7 @@ class ForestChaser(DirectRLEnv):
         if ENABLE_CAMERAS:
             if self.observe_camera:
                 observations['chaser']['rgb'] = self.camera_c.data['rgb']
-                observations['chaser']['depth'] = self.camera_c.data['depth']
+                observations['chaser']['depth'] = self.camera_c.data['depth'][:,:,:,0]
             else:
                 self.extras['rgb'] = self.camera_c.data.output['rgb']
                 self.extras['depth'] = self.camera_c.data.output['depth'][:,:,:,0]

@@ -39,8 +39,6 @@ from skrl.resources.preprocessors.torch import RunningStandardScaler
 import envs
 
 
-
-
 def append_dict_to_hdf5(h5_group: h5py.Group, data_dict: dict):
     for k, v in data_dict.items():
         if isinstance(v, dict):
@@ -71,11 +69,11 @@ def append_dict_to_hdf5(h5_group: h5py.Group, data_dict: dict):
 log_dir = "data/dagger"
 device = args_cli.device
 num_envs = args_cli.num_envs
+skrl.utils.set_seed(args_cli.seed)
+
 env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=args_cli.use_fabric)
 env_cfg.seed = args_cli.seed
-skrl.utils.set_seed(args_cli.seed)
 dump_yaml(os.path.join(log_dir, "env.yaml"), env_cfg)
-
 env = gym.make(args_cli.task, cfg=env_cfg)
 env = IsaacLabWrapper(env)
 
@@ -87,14 +85,16 @@ teacher_policy = TeacherPolicy(observation_space=env.observation_space, action_s
 teacher_policy.load_state_dict(weights['policy'])
 teacher_policy.eval()
 
+episode_length = torch.zeros((num_envs, 1), dtype=torch.int, device=device, requires_grad=False)
 with torch.inference_mode():
     with h5py.File(f"{log_dir}/data.h5df", 'a') as h5_file:
         obs, info = env.reset()
         while simulation_app.is_running():
-            for _ in tqdm(range(100)):
-                act, _, _ = teacher_policy.compute({'states': teacher_state_preprocessor(obs)})
+            for _ in tqdm(range(20000)):
+                obs = teacher_state_preprocessor(obs)
+                act, _, _ = teacher_policy.compute({'states': obs})
                 next_obs, rew, terminated, truncated, info = env.step(act)
-                done = terminated | truncated
+                done = terminated | truncated  # done==True时next_obs是重置后的第一个状态
                 obs_dict = unflatten_tensorized_space(env.observation_space, obs)
                 transition = {
                     'obs': {
@@ -103,9 +103,13 @@ with torch.inference_mode():
                     },
                     'act': act,
                     'rew': rew,
-                    'done': done
+                    'done': done,
+                    'episode_length': episode_length
                 }
                 append_dict_to_hdf5(h5_file, transition)
                 obs = next_obs
+                go = (~done).int()
+                episode_length = episode_length * go
+                episode_length += go
             break
 env.close()

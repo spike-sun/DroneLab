@@ -5,11 +5,6 @@ from torch import nn
 import gymnasium as gym
 from gymnasium.spaces import Dict, Box
 import h5py
-import ale_py
-from tensordict import TensorDict
-from torchrl.data import ReplayBuffer
-from torchrl.data import LazyMemmapStorage, LazyTensorStorage, ListStorage
-from torchrl.envs import GymEnv, GymWrapper
 
 
 def visualize_dataset():
@@ -36,7 +31,7 @@ def visualize_dataset():
         plt.pause(0.001)
         ax[0].clear()
         ax[1].clear()
-
+    
     plt.ioff()
     plt.close(fig)
 
@@ -55,21 +50,10 @@ def statistics():
     print(vmax)
 
 
-def see_checkpoint():
-    module = torch.load('logs/policy/evader/PPO_2025-01-13_17-44-56/checkpoints/best_agent.pt')
-    print(module)
-
 def print_h5_structure(obj, name="", indent=0):
-    """
-    递归打印 HDF5 文件的组结构和数据集形状。
-
-    :param name: 当前对象的名字
-    :param obj: 当前对象（Group 或 Dataset）
-    :param indent: 当前缩进级别
-    """
     space = '  ' * indent  # 定义缩进量
     if isinstance(obj, h5py.Dataset):
-        print(f"{space}{name} {obj.shape}")
+        print(f"{space}{name}: {obj.shape} {obj.dtype}")
     elif isinstance(obj, h5py.Group):
         print(f"{space}{name}/")
         for key, item in obj.items():
@@ -77,5 +61,5 @@ def print_h5_structure(obj, name="", indent=0):
 
 
 if __name__ == "__main__":
-    with h5py.File(f"data/dagger/data.h5df") as h5_file:
-        print_h5_structure(h5_file)
+    with h5py.File("data/dagger/data.h5df") as f:
+        print_h5_structure(f)

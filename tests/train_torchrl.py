@@ -20,8 +20,6 @@ simulation_app = app_launcher.app
 #    Anything else    #
 #######################
 
-# import sys
-# sys.path.append('/home/sbw/MyUAV')
 from datetime import datetime
 import torch
 from torch import nn

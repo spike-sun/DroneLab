@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torchvision
-from torchsummary import summary
 from .vae import VAEEncoder
 LOG10000 = 9.210340372
 
